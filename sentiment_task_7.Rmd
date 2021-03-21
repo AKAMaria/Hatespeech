@@ -1,0 +1,289 @@
+---
+title: "Hatespeech"
+author: "Maria Dzhevaga"
+date: "3/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Одним із основних меседжів лекції було те, що визначення сентиментів тексту ґрунтується на частоті зустрічання певних слів у цих текстах. Це, слова із чітко вираженим сентиментом.
+У першому випадку ми завантажили уже готовий словник сентиментів і просто порахували суму сентиментів для слів кожного тексту.
+У другому випадку ми зробили статистичну модель, яка аналізувала, які слова притаманні текстам з хейт спічем (давала їм більші регресійні коефіцієнти), а які - ні (давала менші регресійні коефіцієнти.
+
+У цьому завданні вам пропонується зробити аналіз того, які саме слова надають текстам хейтерський сентимент. Для цього нам потрібні закодовані вами масиви.
+
+```{r cars}
+library(readxl)
+library(dplyr)
+
+sent_data <- read_excel("тут шлях до вашого закодованого масиву") 
+```
+
+Доповніть код нижче так, аби ми відібрали тільки колонку з текстами та колонку, де закодовано хейт спіч. Також відсійте ті значення колонки з кодування хейт спічу, де є пропущені значення.
+
+**Тут і далі та частина коду, де треба власноруч дописати позначена трьокрапкою**
+
+```{r}
+sent_data <- sent_data %>% 
+  select(...) %>% 
+  filter(...) %>% 
+  mutate(id = 1:nrow(.)) #додав колонку, яка слугуватиме унікальним ідентифікатором тексту
+```
+
+Тепер токенізуємо наші тексти через відому з лекції функцію з пакету tidytext:
+
+```{r}
+tokenized_sent_data <- sent_data %>% 
+  ...
+```
+
+Тепер ускладнимо кодування, попрахувавши для кожного слова а) його частоту зустрічання в кожному тексті та б) його tf-idf індекс.
+
+Як це можна зробити можна прочитати тут - https://www.tidytextmining.com/tfidf.html#the-bind_tf_idf-function
+
+```{r}
+tokenized_stats <- tokenized_sent_data %>% 
+  ...(id, word) %>% 
+  ...(word, id, n)
+```
+
+Тепер у нас є все, аби отримати таблицю "хейт-слів"!
+
+Лишилось тільки згрупувати наші дані за колонкою з токенізованими словами та порахувати середнє значення по цих групах добутку tf-idf індексу і колонки з наявністю чи відсутністю в тексті хейт-спічу:
+
+```{r}
+res <- tokenized_sent_data %>% 
+  left_join(tokenized_stats) %>% # приєднуємо до таблиці tokenized_sent_data таблицю tokenized_stats
+  group_by(...) %>%  
+  summarise(hate =  ...) %>%  
+  arrange(desc(hate)) # сортуємо в порядку спадання значення хейт-індексу
+```
+
+Коли є в нас таблиця, то ми можемо глянути топ-50 хейт-слів:
+
+```{r}
+head(res, 50)
+```
+
+Якщо ці слова вам також здаються у більшості з яскравим негативним сентиментом, то будьте впевнені, що завдання ви виконали вірно!
+---
+title: "Automated text analysis in R"
+author: "Roman Kyrychenko"
+date: "2/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+suppressPackageStartupMessages({
+  library(tidytext) # text tokenization
+  library(stringr) # text transformations
+  library(stringdist) # word distances
+  library(text2vec) # document matrix and similarities
+  library(dplyr) # data manipulations
+  library(fuzzyjoin) # join using word distances
+  library(readr) # read and write files
+  library(readxl) # read excel files
+  library(glmnet) # logistic regression
+})
+```
+
+## Dataset
+
+```{r}
+text <- read_xlsx("D:/DellE5470/Desktop/R/group_7.xlsx")
+text %>% head()
+```
+
+## Text encode
+
+First way:
+
+```{r}
+prep_fun = tolower
+tok_fun = word_tokenizer
+it_train = itoken(text$text, 
+             preprocessor = prep_fun, 
+             tokenizer = tok_fun, 
+             progressbar = FALSE)
+vocab = create_vocabulary(it_train)
+head(vocab %>% arrange(desc(doc_count)))
+```
+
+Second way:
+
+```{r}
+tokenized_text <- text %>%
+  unnest_tokens(word, text)
+```
+
+### BoW
+
+```{r}
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+dim(dtm_train)
+```
+dtm_train
+### Tf-IDF
+
+```{r}
+vocab = create_vocabulary(it_train)
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+tfidf = TfIdf$new()
+dtm_train_tfidf = fit_transform(dtm_train, tfidf)
+```
+
+## Words and Text distances
+
+Currently, the following distance metrics are supported by stringdist.
+
+- **The Levenshtein distance (method='lv')** counts the number of deletions, insertions and substitutions necessary to turn b into a. This method is equivalent to R's native adist function.
+
+- **The Optimal String Alignment distance (method='osa')** is like the Levenshtein distance but also allows transposition of adjacent characters. Here, each substring may be edited only once. (For example, a character cannot be transposed twice to move it forward in the string).
+
+- **The longest common substring (method='lcs')** is defined as the longest string that can be obtained by pairing characters from a and b while keeping the order of characters intact. The lcs-distance is defined as the number of unpaired characters. The distance is equivalent to the edit distance allowing only deletions and insertions, each with weight one.
+
+- **The cosine distance (method='cosine')** is computed as $1-x\cdot y/(\|x\|\|y\|)$, where x and y were defined above.
+
+- Let X be the set of unique q-grams in a and Y the set of unique q-grams in b. **The Jaccard distance (method='jaccard')** is given by $1-\frac{|X\cap Y|}{|X\cup Y|}$.
+
+### Word
+
+```{r}
+methods <- c("osa", "lv", "lcs", "cosine", "jaccard")
+for (i in methods){
+  cat(paste0(i, ":\t", stringdist("порох", "порошенко", method = i), "\n"))
+}
+```
+
+### Document
+
+![distances](distances.jpg)
+
+#### Jaccard distance
+
+```{r}
+d1_d2_jac_sim = sim2(dtm_train, dtm_train, method = "jaccard", norm = "none")
+```
+
+```{r}
+most_similar_text <- function(index, sim_matrix = d1_d2_jac_sim){
+  cols <- 1:ncol(sim_matrix)
+  sims <- sim_matrix[index, cols[cols != index]]
+  cat("Similarity: ", max(sims))
+  cat("\n")
+  cat(text[index, 3][[1]])
+  cat("\n")
+  cat("\n")
+  cat(text[as.numeric(names(which.max(sims))), 3][[1]])
+}
+most_similar_text(3)
+```
+
+#### Cosine distance
+
+```{r}
+d1_d2_cos_sim = sim2(dtm_train_tfidf, dtm_train_tfidf, method = "cosine", norm = "l2")
+```
+
+```{r}
+most_similar_text(2, d1_d2_cos_sim)
+```
+
+## Sentiment analysis
+
+![Словники української мови](https://lang.org.ua/uk/dictionaries/)
+
+```{r}
+tone_dict <- read_delim("https://raw.githubusercontent.com/lang-uk/tone-dict-uk/master/tone-dict-uk.tsv", delim = "\t", col_names = F) %>% 
+  setNames(c("word", "tone"))
+head(tone_dict)
+```
+
+### Word approach
+
+```{r}
+sent <- tokenized_text %>% 
+  mutate(word = str_to_lower(word)) %>% 
+  left_join(tone_dict) %>% 
+  mutate(tone = ifelse(is.na(tone), 0, tone)) %>% 
+  group_by(source) %>% 
+  summarise(tone = mean(tone)) %>% 
+  arrange(desc(tone))
+```
+
+```{r}
+sent %>% 
+  mutate(year = as.numeric(sapply(url, function(x) str_split(x, "/")[[1]][6]))) %>% 
+  group_by(year) %>% 
+  summarise(tone = mean(tone)*100, n = n())
+```
+
+#### Add similarity
+
+```{r}
+sent <- tokenized_text %>% 
+  mutate(word = str_to_lower(word)) %>% 
+  fuzzyjoin::stringdist_left_join(table, by = "text", method="cosine", max_dist = 0.1) %>% 
+  mutate(sentiments = ifelse(is.na(sentiments), 0, sentiments)) %>% 
+  group_by(source,text) %>% 
+  summarise(sentiments = mean(sentiments)) %>% 
+  arrange(desc(sentiments))
+```
+
+```{r}
+sent %>% 
+  mutate(year = as.numeric(sapply(url, function(x) str_split(x, "/")[[1]][5]))) %>% 
+  group_by(year) %>% 
+  summarise(tone = mean(tone)*100, n = n())
+```
+
+### Logistic regression approach
+
+```{r}
+#own path to excel file
+sent_data <- read_excel("D:/DellE5470/Desktop/R/group_7.xlsx") %>% 
+  select(text, `Hate Speech Detection`)%>%
+  filter(!is.na(`Hate Speech Detection`))
+```
+
+```{r}
+prep_fun = tolower
+tok_fun = word_tokenizer
+it_train = itoken(sent_data$text, 
+             preprocessor = prep_fun, 
+             tokenizer = tok_fun, 
+             progressbar = FALSE)
+vocab = create_vocabulary(it_train)
+vectorizer = vocab_vectorizer(vocab)
+dtm_train = create_dtm(it_train, vectorizer)
+tfidf = TfIdf$new()
+dtm_train_tfidf = fit_transform(dtm_train, tfidf)
+```
+
+```{r}
+glmnet_classifier = cv.glmnet(x = dtm_train_tfidf, 
+                              y = sent_data$`Hate Speech Detection`, 
+                              family = 'binomial', 
+                              alpha = 1,
+                              type.measure = "auc",
+                              nfolds = 5,
+                              thresh = 1e-3,
+                              maxit = 1e3)
+```
+
+```{r}
+print(paste("max AUC =", round(max(glmnet_classifier$cvm), 4)))
+```
